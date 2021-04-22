@@ -20,7 +20,7 @@ clear
 % interface but some are of little use.
 
 
-% Find a serial port object.
+% Find a serial port object for TG1010.
 TG1010 = instrfind('Type', 'serial', 'Port', 'COM1');
 
 % Create the serial port object if it does not exist
@@ -32,19 +32,47 @@ else
     TG1010 = TG1010(1);
 end
 
+% Set the communication parameters. For old equipment, some parameters are
+% different from modern values.
 TG1010.Terminator={'CR','LF'};
 TG1010.FlowControl='software';
 TG1010.InputBufferSize=256;
 TG1010.outputBufferSize=256;
 TG1010.RequestToSend='off';
 
-% Connect to instrument object, obj1.
+% Connect to instrument object, TG1010.
 fopen(TG1010);
+
+% Find a visa port object for TDS 2004B.
+Tektronix= instrfind('Type', 'visa-usb', 'RsrcName', 'USB0::0x0699::0x0365::C030655::0::INSTR');
+
+if isempty(Tektronix)
+    Tektronix = visa('TEK', 'USB0::0x0699::0x0365::C030655::0::INSTR');
+else
+    fclose(Tektronix);
+    Tektronix = Tektronix(1);
+end
+
+% Set the communication parameters.
+Tektronix.EOIMode='on';
+% Buffer size should be larger than points*datasize
+Tektronix.InputBufferSize=5120;
+Tektronix.EOSMode='read&write';
+
+% Connect to instrument object, TDS 2004B.
+fopen(Tektronix);
+
+%% Instrument Configuration and Control
+
+% Communicating with instrument object, TG1010.
+% Reset the equipment
 fprintf(TG1010, '%s\n', ';*RST;');
+% Wait for completion
 while(str2double(query(TG1010,';*OPC?;'))~=1.0)
 end
+% Read the identification of the equipment 
 fprintf(TG1010, '%s\n', ';*IDN?;');
-TG1010__Identification=fscanf(TG1010,'%s');
+TG1010_Identification=fscanf(TG1010,'%s');
 
 
 fprintf(TG1010, '%s\n', ';OUTPUT ON;');% Set output <ON>, <OFF>, <NORMAL> or <INVERT>
@@ -58,11 +86,11 @@ fprintf(TG1010, '%s\n', ';EMFPP 5;');% Set output level to <nrf> emf Vpp
 fprintf(TG1010, '%s\n', ';ZOUT 50;');% Set output impedance to <nrf>; only 50 or 600 are legal.
 fprintf(TG1010, '%s\n', ';DCOFFS 0;');% Set dc offset to <nrf> Volts
 fprintf(TG1010, '%s\n', ';SYMM 50;');% Set symmetry to <nrf> %
-% fprintf(TG1010, '%s\n', ';PHASE 0;');% Set phase to <nrf> degrees
+fprintf(TG1010, '%s\n', ';PHASE 0;');% Set phase to <nrf> degrees
 
 % fprintf(TG1010, '%s\n', ';SINE;');% Set sine function
-fprintf(TG1010, '%s\n', ';SQUARE;');% Set square function
-% fprintf(TG1010, '%s\n', ';TRIAN;');% Set triangle function
+% fprintf(TG1010, '%s\n', ';SQUARE;');% Set square function
+fprintf(TG1010, '%s\n', ';TRIAN;');% Set triangle function
 % fprintf(TG1010, '%s\n', ';POSPUL;');% Set positive pulse function
 % fprintf(TG1010, '%s\n', ';NEGPUL;');% Set negative pulse function
 % fprintf(TG1010, '%s\n', ';POSRAMP;');% Set positive ramp function
@@ -71,39 +99,23 @@ fprintf(TG1010, '%s\n', ';SQUARE;');% Set square function
 % fprintf(TG1010, '%s\n', ';ARB;');% Set arbitrary function
 % fprintf(TG1010, '%s\n', ';NOISE ON;');% Set NOISE <ON> or <OFF>
 
-Tektronix= instrfind('Type', 'visa-usb', 'RsrcName', 'USB0::0x0699::0x0365::C030655::0::INSTR');
-
-if isempty(Tektronix)
-    Tektronix = visa('TEK', 'USB0::0x0699::0x0365::C030655::0::INSTR');
-else
-    fclose(Tektronix);
-    Tektronix = Tektronix(1);
-end
-
-Tektronix.EOIMode='on';
-% Buffer size should be larger than points*datasize
-Tektronix.InputBufferSize=5120;
-
-Tektronix.EOSMode='read&write';
-
-fopen(Tektronix);
-
-%% Instrument Configuration and Control
-
-% Communicating with instrument object.
-
-
+% Reset the equipment
 fprintf(Tektronix, '%s\n', ';*RST;');
+% Wait for completion
 while(str2double(query(Tektronix,';*OPC?;'))~=1.0)
 end
 
+% Autoset the equipment
 fprintf(Tektronix, '%s\n', ';AUTOSet EXECute;');
+% Wait for completion
 while(str2double(query(Tektronix,';*OPC?;'))~=1.0)
 end
 
+% Read the identification of the equipment 
 fprintf(Tektronix, '%s\n', ';*IDN?;');
 Tek_Identification = fscanf(Tektronix,'%s');
 
+% Refer to the programmer manual for the meanings of these commands
 fprintf(Tektronix, '%s\n', ';SELECT:CH1 ON;');
 fprintf(Tektronix, '%s\n', ';CH1:Probe 1;');
 
@@ -130,8 +142,6 @@ CH2_pos_div=fscanf(Tektronix,':CH2:POSITION%f');
 
 %fprintf(Tektronix, '%s\n', ';WFMPre?;');
 %wfm=fscanf(Tektronix,'%s');
-for i=5:-1:2
-fprintf(TG1010, '%s\n', [';EMFPP ' num2str(i) ';']);% Set output level to <nrf> emf Vpp
 
 fprintf(Tektronix, '%s\n', ';ACQUIRE:STATE OFF;');
 fprintf(Tektronix, '%s\n', ';ACQUIRE:MODE SAMPLE;');
@@ -158,11 +168,9 @@ fprintf(Tektronix, '%s\n', ';DATa:STARt 1;');
 fprintf(Tektronix, '%s\n', ';DATa:STOP 2500;');
 fprintf(Tektronix, '%s\n', ';CURV?;');
 
-data_raw_CH1(:,i) = fread(Tektronix, 2506, 'int16');
-data_CH1(:,i)=(data_raw_CH1(7:2506,i)./32767).*(5*CH1_ver_div);
-% data_CH1_offset=(data_raw_CH1(7:2506)./32767).*(5*CH1_ver_div);
-% data_CH1=data_CH1_offset-CH1_ver_div*CH1_pos_div;
-[t_size_CH1,~]=size(data_CH1(:,i));
+data_raw_CH1 = fread(Tektronix, 2506, 'int16');
+data_CH1=(data_raw_CH1(7:2506)./32767).*(5*CH1_ver_div);
+[t_size_CH1,~]=size(data_CH1);
 t_CH1=1:1:t_size_CH1;
 t_CH1=t_CH1.*(hor_div/(2500/10));
 
@@ -173,19 +181,16 @@ fprintf(Tektronix, '%s\n', ';DATa:STARt 1;');
 fprintf(Tektronix, '%s\n', ';DATa:STOP 2500;');
 fprintf(Tektronix, '%s\n', ';CURV?;');
 
-data_raw_CH2(:,i) = fread(Tektronix, 2506, 'int16');
-data_CH2(:,i)=(data_raw_CH2(7:2506,i)./32767).*(5*CH2_ver_div);
-% data_CH2_offset=(data_raw_CH2(7:2506)./32767).*(5*CH2_ver_div);
-% data_CH2=data_CH2_offset-CH2_ver_div*CH2_pos_div;
-[t_size_CH2,~]=size(data_CH2(:,i));
+data_raw_CH2 = fread(Tektronix, 2506, 'int16');
+data_CH2=(data_raw_CH2(7:2506)./32767).*(5*CH2_ver_div);
+[t_size_CH2,~]=size(data_CH2);
 t_CH2=1:1:t_size_CH2;
 t_CH2=t_CH2.*(hor_div/(2500/10));
-figure
-plot(t_CH1,data_CH1(:,i),t_CH2,data_CH2(:,i));
-end
+
+
 %% Disconnect and Clean Up
 
-% Disconnect from instrument object, obj1.
+% Disconnect from instrument object, TG1010 and TDS 2004B.
 fclose(TG1010);
 fclose(Tektronix);
 
@@ -198,3 +203,4 @@ delete(TG1010);
 delete(Tektronix);
 clear Tektronix
 clear TG1010;
+plot(t_CH1,data_CH1,t_CH2,data_CH2);
