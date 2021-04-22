@@ -1,3 +1,5 @@
 # Ignore folders
 Driver and Manual/
 Result/
+
+*.jpg
